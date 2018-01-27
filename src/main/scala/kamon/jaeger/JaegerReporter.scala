@@ -21,7 +21,7 @@ import java.util
 
 import com.typesafe.config.Config
 import com.uber.jaeger.thriftjava.{Log, Process, Tag, TagType, Span => JaegerSpan}
-import com.uber.jaeger.senders.HttpSender
+import com.uber.jaeger.senders.{HttpSender, ThriftSender, UdpSender}
 import kamon.trace.IdentityProvider.Identifier
 import kamon.trace.Span
 import kamon.util.Clock
@@ -32,6 +32,7 @@ import scala.util.Try
 class JaegerReporter extends SpanReporter {
 
   @volatile private var jaegerClient:JaegerClient = _
+
   reconfigure(Kamon.config())
 
   override def reconfigure(newConfig: Config):Unit = {
@@ -39,7 +40,21 @@ class JaegerReporter extends SpanReporter {
     val host = jaegerConfig.getString("host")
     val port = jaegerConfig.getInt("port")
 
-    jaegerClient = new JaegerClient(host, port)
+    val jaegerSender = jaegerConfig.getString("sender")
+
+    jaegerSender.toLowerCase match {
+      case "udp" =>
+        val maxPacketSize = jaegerConfig.getInt("udp.max-packet-size")
+        jaegerClient = new JaegerClient(new UdpSender(host, port, maxPacketSize))
+
+      case "http" =>
+        val endpoint = s"http://$host:$port/api/traces"
+        jaegerClient = new JaegerClient(new HttpSender(endpoint))
+
+      case sender =>
+        sys.error(s"Unknown jaeger sender configured: $sender" )
+    }
+
   }
 
   override def start(): Unit = {}
@@ -50,16 +65,18 @@ class JaegerReporter extends SpanReporter {
   }
 }
 
-class JaegerClient(host: String, port: Int) {
+class JaegerClient(sender: ThriftSender) {
   import scala.collection.JavaConverters._
 
-  val endpoint = s"http://$host:$port/api/traces"
   val process = new Process(Kamon.environment.service)
-  val sender = new HttpSender(endpoint)
 
   def sendSpans(spans: Seq[Span.FinishedSpan]): Unit = {
     val convertedSpans = spans.map(convertSpan).asJava
-    sender.send(process, convertedSpans)
+    try {
+      sender.send(process, convertedSpans)
+    } finally {
+      sender.flush()
+    }
   }
 
   private def convertSpan(span: Span.FinishedSpan): JaegerSpan = {
