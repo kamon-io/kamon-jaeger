@@ -20,8 +20,8 @@ import java.nio.ByteBuffer
 import java.util
 
 import com.typesafe.config.Config
-import com.uber.jaeger.thriftjava.{Log, Process, Tag, TagType, Span => JaegerSpan}
-import com.uber.jaeger.senders.HttpSender
+import io.jaegertracing.thriftjava.{Log, Process, Tag, TagType, Span => JaegerSpan}
+import io.jaegertracing.senders.HttpSender
 import kamon.trace.IdentityProvider.Identifier
 import kamon.trace.Span
 import kamon.util.Clock
